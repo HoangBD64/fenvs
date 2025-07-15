@@ -54,10 +54,28 @@
       <span v-else>Page {{ filterPage }} / {{ totalPages }}</span>
       <button @click="nextPage" :disabled="filterStoreId ? !nextPageInfo : filterPage === totalPages">Next</button>
     </div>
-    <div v-if="showCreate || editingProduct" class="modal">
+    <div v-if="showCreate || editingProduct" class="modal" @click.self="closeModal">
       <div class="modal-content">
         <h3>{{ editingProduct ? 'Edit' : 'Create' }} Product</h3>
         <form @submit.prevent="saveProduct">
+          <div v-if="!editingProduct && templateList.length" class="template-store-row">
+            <label class="template-label">
+              <span class="template-icon">📋</span> Chọn template:
+              <select v-model="selectedTemplateId" class="template-select" @change="() => { const t = templateList.find(t => t.id === selectedTemplateId); if (t) applyTemplate(t) }">
+                <option value="">-- Không chọn --</option>
+                <option v-for="tpl in templateList" :key="tpl.id" :value="tpl.id">{{ tpl.title || tpl.template_name || tpl.id }}</option>
+              </select>
+            </label>
+            <label class="store-label">
+              <span class="store-icon">🏬</span> Store ID:
+              <select v-model="form.store_id" required class="store-select">
+                <option value="">Chọn Store</option>
+                <option v-for="store in storeList" :key="store.id" :value="store.id">
+                  {{ store.name || store.domain || store.id }}
+                </option>
+              </select>
+            </label>
+          </div>
           <fieldset class="section">
             <legend>Product Information</legend>
             <div class="form-row">
@@ -77,9 +95,6 @@
               <label>Tags:<input v-model="form.tags" /></label>
             </div>
             <div class="form-row">
-              <label>Store ID:<input v-model="form.store_id" /></label>
-            </div>
-            <div class="form-row">
               <label style="flex:1">Body HTML:<textarea v-model="form.body_html" rows="2" /></label>
             </div>
           </fieldset>
@@ -88,29 +103,19 @@
             <legend>Variants</legend>
             <div v-for="(variant, vIdx) in form.variants" :key="vIdx" class="variant-box">
               <div class="form-row">
-                <label>Title:<input v-model="variant.title" /></label>
-                <label>Price:<input v-model="variant.price" /></label>
-                <label>Compare At Price:<input v-model="variant.compare_at_price" /></label>
-                <label>SKU:<input v-model="variant.sku" /></label>
-                <label>Barcode:<input v-model="variant.barcode" /></label>
+                <label>Title:<input v-model="variant.title" placeholder="Variant title..." /></label>
+                <label>Price:<input type="number" v-model.number="variant.price" placeholder="0" min="0" /></label>
+                <label>Compare At Price:<input type="number" v-model.number="variant.compare_at_price" placeholder="0" min="0" /></label>
+                <label>Quantity:<input type="number" v-model.number="variant.inventory_quantity" placeholder="0" min="0" /></label>
+                <label>SKU:<input v-model="variant.sku" placeholder="SKU..." /></label>
+                <label>Variant Image URL:<input v-model="variant.image" placeholder="Paste image link..." /></label>
+                <div v-if="variant.image" style="margin-left:12px;display:flex;align-items:center;">
+                  <img :src="variant.image" alt="Preview" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee;" />
+                </div>
+                <button type="button" class="remove-btn" @click="removeVariant(vIdx)">Remove</button>
               </div>
-              <div class="form-row">
-                <label>Option1:<input v-model="variant.option1" /></label>
-                <label>Option2:<input v-model="variant.option2" /></label>
-                <label>Option3:<input v-model="variant.option3" /></label>
-                <label>Weight:<input type="number" v-model.number="variant.weight" /></label>
-                <label>Weight Unit:<input v-model="variant.weight_unit" /></label>
-              </div>
-              <div class="form-row">
-                <label>Inventory Quantity:<input type="number" v-model.number="variant.inventory_quantity" /></label>
-                <label>Inventory Management:<input v-model="variant.inventory_management" /></label>
-                <label>Fulfillment Service:<input v-model="variant.fulfillment_service" /></label>
-                <label>Requires Shipping:<input type="checkbox" v-model="variant.requires_shipping" /></label>
-                <label>Taxable:<input type="checkbox" v-model="variant.taxable" /></label>
-              </div>
-              <button type="button" class="remove-btn" @click="removeVariant(vIdx)">Remove Variant</button>
             </div>
-            <button type="button" class="add-btn" @click="addVariant">Add Variant</button>
+            <button type="button" class="add-btn" @click="addVariant" :disabled="form.variants.length >= 3">Add Variant</button>
           </fieldset>
 
           <fieldset class="section">
@@ -133,6 +138,9 @@
                 <label>Position:<input type="number" v-model.number="image.position" /></label>
                 <label>Variant IDs (comma separated):<input v-model="image.variant_idsStr" /></label>
                 <button type="button" class="remove-btn" @click="removeImage(iIdx)">Remove Image</button>
+                <div v-if="image.src" style="margin-left:12px;display:flex;align-items:center;">
+                  <img :src="image.src" alt="Preview" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee;" />
+                </div>
               </div>
             </div>
             <button type="button" class="add-btn" @click="addImage">Add Image</button>
@@ -264,6 +272,8 @@ const pageStack = ref([]) // stack lưu page_info các trang trước
 const filterPage = ref(1)
 const totalProducts = ref(0)
 const totalPages = ref(1)
+const templateList = ref([])
+const selectedTemplateId = ref('')
 
 const defaultForm = () => ({
   title: '',
@@ -280,6 +290,13 @@ const defaultForm = () => ({
 })
 
 const form = ref(defaultForm())
+
+function normalizeProductImages(product) {
+  if ((!product.images || !Array.isArray(product.images) || product.images.length === 0) && product.image) {
+    product.images = [{ src: product.image }];
+  }
+  return product;
+}
 
 const fetchProducts = async () => {
   let url = 'https://hoangnd.shopprint.click/api/product.json'
@@ -299,7 +316,8 @@ const fetchProducts = async () => {
   if (params.length) url += '?' + params.join('&')
   const res = await fetch(url)
   const data = await res.json()
-  products.value = data.products || data
+  // Normalize images for each product
+  products.value = (data.products || data).map(normalizeProductImages)
   nextPageInfo.value = data.page_info || ''
   if (!filterStoreId.value) {
     totalProducts.value = data.total || (Array.isArray(data.products) ? data.products.length : 0)
@@ -307,16 +325,16 @@ const fetchProducts = async () => {
   }
 }
 
-// const fetchOrders = async () => {
-//   if (!filterStoreId.value) {
-//     orders.value = []
-//     return
-//   }
-//   let url = `https://hoangnd.shopprint.click/api/order.json?store_id=${encodeURIComponent(filterStoreId.value)}`
-//   const res = await fetch(url)
-//   const data = await res.json()
-//   orders.value = data.orders || data
-// }
+const fetchOrders = async () => {
+  if (!filterStoreId.value) {
+    orders.value = []
+    return
+  }
+  let url = `https://hoangnd.shopprint.click/api/order.json?store_id=${encodeURIComponent(filterStoreId.value)}`
+  const res = await fetch(url)
+  const data = await res.json()
+  orders.value = data.orders || data
+}
 
 const fetchStoreIds = async () => {
   const res = await fetch('https://hoangnd.shopprint.click/api/store.json')
@@ -335,7 +353,22 @@ watch([filterStoreId, filterIDs], () => {
   fetchProducts()
 }, { immediate: true })
 
-//watch(filterStoreId, fetchOrders, { immediate: true })
+watch(filterStoreId, fetchOrders, { immediate: true })
+
+// Gọi API lấy template khi mở modal thêm sản phẩm
+watch(showCreate, async (val) => {
+  if (val && !editingProduct.value) {
+    // Chỉ load khi tạo mới
+    try {
+      const res = await fetch('https://hoangnd.shopprint.click/api/template.json')
+      const data = await res.json()
+      templateList.value = Array.isArray(data.template) ? data.template : []
+    } catch (e) {
+      templateList.value = []
+    }
+    selectedTemplateId.value = ''
+  }
+})
 
 onMounted(() => {
   fetchStoreIds()
@@ -462,12 +495,9 @@ async function saveProduct() {
   fetchProducts()
 }
 async function deleteProduct(id) {
-  if (!filterStoreId.value) {
-    alert('Vui lòng chọn Store trước khi xóa sản phẩm!');
-    return;
-  }
-  await fetch(`https://hoangnd.shopprint.click/api/product/${id}?store_id=${encodeURIComponent(filterStoreId.value)}`, { method: 'DELETE' });
-  fetchProducts();
+  // Use the current filterStoreId as store_id for deletion
+  await fetch(`https://hoangnd.shopprint.click/api/product/${id}?store_id=${encodeURIComponent(filterStoreId.value)}`, { method: 'DELETE' })
+  fetchProducts()
 }
 async function syncProducts() {
   if (!filterStoreId.value) return
@@ -522,6 +552,46 @@ function prevPage() {
       filterPage.value--
       fetchProducts()
     }
+  }
+}
+
+function applyTemplate(template) {
+  // Chuyển đổi dữ liệu template sang đúng định dạng form frontend
+  form.value = {
+    title: template.title || '',
+    body_html: template.body_html || '',
+    vendor: template.vendor || '',
+    product_type: template.product_type || '',
+    handle: template.handle || '',
+    status: template.status || 'active',
+    tags: template.tags || '',
+    store_id: template.store_id || '',
+    variants: (template.variants || []).map(v => ({
+      title: v.title || '',
+      price: v.price || '',
+      compare_at_price: v.compare_at_price || null,
+      option1: v.option1 || '',
+      option2: v.option2 || null,
+      option3: v.option3 || null,
+      sku: v.sku || '',
+      barcode: v.barcode || '',
+      weight: v.weight || 0,
+      weight_unit: v.weight_unit || 'kg',
+      inventory_quantity: v.inventory_quantity || 0,
+      inventory_management: v.inventory_management || null,
+      fulfillment_service: v.fulfillment_service || 'manual',
+      requires_shipping: v.requires_shipping !== undefined ? v.requires_shipping : true,
+      taxable: v.taxable !== undefined ? v.taxable : true
+    })),
+    options: (template.options || []).map(o => ({
+      name: o.name || '',
+      valuesStr: Array.isArray(o.values) ? o.values.join(', ') : ''
+    })),
+    images: (template.images || []).map(img => ({
+      src: img.src || '',
+      position: img.position || 0,
+      variant_idsStr: ''
+    }))
   }
 }
 </script>
@@ -657,71 +727,130 @@ tbody tr:hover {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  /* animation chỉ chạy khi mount, không bị trigger lại */
+  animation: modalFadeIn 0.25s;
+  will-change: opacity;
+}
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .modal-content {
   background: #fff;
-  padding: 32px 28px;
-  border-radius: 14px;
-  min-width: 350px;
-  max-width: 90vw;
-  max-height: 90vh;
+  padding: 36px 32px 32px 32px;
+  border-radius: 18px;
+  min-width: 910px;
+  width: 1270px;
+  max-height: 95vh;
   overflow-y: auto;
-  box-shadow: 0 8px 32px #3182ce33;
+  box-shadow: 0 8px 32px #3182ce33, 0 2px 8px #0002;
+  /* animation chỉ chạy khi mount, không bị trigger lại */
+  animation: modalContentIn 0.3s;
+  will-change: transform, opacity;
+}
+@keyframes modalContentIn {
+  from { transform: translateY(40px) scale(0.98); opacity: 0; }
+  to { transform: none; opacity: 1; }
 }
 .section {
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  margin-bottom: 22px;
-  padding: 18px 20px 12px 20px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 14px;
+  margin-bottom: 28px;
+  padding: 22px 24px 16px 24px;
   background: #f8fafc;
+  box-shadow: 0 1px 8px #3182ce11;
+  transition: box-shadow 0.2s;
 }
 .section legend {
   font-weight: bold;
-  padding: 0 8px;
+  padding: 0 12px;
   color: #3182ce;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
+  letter-spacing: 0.5px;
+  background: #e3e8ee;
+  border-radius: 8px;
+  margin-bottom: 8px;
 }
 .form-row {
   display: flex;
-  gap: 18px;
-  margin-bottom: 12px;
+  gap: 22px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
+  align-items: flex-end;
+  box-shadow: 0 1px 4px #3182ce08;
+  padding-bottom: 2px;
 }
 .form-row label {
   display: flex;
   flex-direction: column;
-  font-size: 15px;
+  font-size: 16px;
   min-width: 140px;
   flex: 1;
   color: #374151;
+  font-weight: 500;
+  margin-bottom: 0;
 }
-input, textarea {
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 7px 12px;
+input, textarea, select {
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 9px 14px;
   font-size: 1rem;
   margin-top: 4px;
   background: #f8fafc;
-  transition: border 0.2s;
+  /* Tắt hiệu ứng transition */
+  /* transition: border 0.2s, box-shadow 0.2s; */
+  box-shadow: 0 1px 4px #3182ce08;
 }
-input:focus, textarea:focus {
-  border: 1.5px solid #3182ce;
+
+input:focus, textarea:focus, select:focus {
+  border: 2px solid #3182ce;
   outline: none;
+  box-shadow: 0 2px 8px #3182ce22;
 }
+
 .variant-box, .option-box, .image-box {
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  margin-bottom: 12px;
-  padding: 12px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  margin-bottom: 14px;
+  padding: 14px 16px;
   background: #f1f5f9;
-  box-shadow: 0 1px 4px #3182ce11;
+  box-shadow: 0 1px 6px #3182ce11;
+  /* Tắt hiệu ứng transition */
+  /* transition: box-shadow 0.2s; */
 }
+/* Tắt hiệu ứng hover */
+/*
+.variant-box:hover, .option-box:hover, .image-box:hover {
+  box-shadow: 0 2px 12px #3182ce22;
+}
+*/
 .form-actions {
   display: flex;
-  gap: 18px;
+  gap: 22px;
   justify-content: flex-end;
-  margin-top: 22px;
+  margin-top: 28px;
 }
+.form-actions button {
+  font-size: 1.08rem;
+  font-weight: 700;
+  padding: 10px 32px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(90deg, #3182ce 60%, #63b3ed 100%);
+  color: #fff;
+  box-shadow: 0 2px 8px #3182ce22;
+  /* Tắt hiệu ứng transition */
+  /* transition: background 0.2s, box-shadow 0.2s, transform 0.1s; */
+  cursor: pointer;
+}
+/* Tắt hiệu ứng hover */
+/*
+.form-actions button:hover {
+  background: linear-gradient(90deg, #2563eb 60%, #4299e1 100%);
+  box-shadow: 0 4px 16px #3182ce33;
+  transform: translateY(-2px) scale(1.04);
+}
+*/
 .product-detail-box {
   margin-bottom: 18px;
 }
@@ -855,21 +984,95 @@ input:focus, textarea:focus {
   color: #2d3748;
   font-size: 1.1rem;
 }
+.template-select-row {
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+}
+.template-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #3182ce;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.template-icon {
+  font-size: 1.2em;
+  margin-right: 4px;
+}
+.template-select {
+  margin-left: 10px;
+  padding: 7px 18px;
+  border-radius: 8px;
+  border: 1.5px solid #90cdf4;
+  background: #f0f9ff;
+  font-size: 1rem;
+  font-weight: 500;
+  /* Tắt hiệu ứng transition */
+  /* transition: border 0.2s, box-shadow 0.2s; */
+  box-shadow: 0 1px 4px #3182ce11;
+}
+/* Tắt hiệu ứng focus */
+/*
+.template-select:focus {
+  border: 2px solid #3182ce;
+  outline: none;
+  box-shadow: 0 2px 8px #3182ce22;
+}
+*/
+.store-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #38a169;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.store-icon {
+  font-size: 1.2em;
+  margin-right: 4px;
+}
+.store-select {
+  margin-left: 10px;
+  padding: 7px 18px;
+  border-radius: 8px;
+  border: 1.5px solid #68d391;
+  background: #f8fff4;
+  font-size: 1rem;
+  font-weight: 500;
+  /* Tắt hiệu ứng transition */
+  /* transition: border 0.2s, box-shadow 0.2s; */
+  box-shadow: 0 1px 4px #38a16911;
+}
+
+.store-select:focus {
+  border: 2px solid #38a169;
+  outline: none;
+  box-shadow: 0 2px 8px #38a16922;
+}
+
+.template-store-row {
+  display: flex;
+  gap: 32px;
+  margin-bottom: 18px;
+  align-items: flex-end;
+}
+.template-store-row > label {
+  flex: 1 1 0;
+  min-width: 180px;
+}
+.add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #cbd5e1 !important;
+  color: #888 !important;
+  box-shadow: none !important;
+}
 @media (max-width: 700px) {
   .container {
     padding: 10px 2vw;
   }
-  .modal-content {
-    padding: 12px 2vw;
-    min-width: 0;
-  }
-  .form-row label {
-    min-width: 100px;
-    font-size: 13px;
-  }
-  th, td, .detail-table th, .detail-table td {
-    font-size: 13px;
-    padding: 6px 4px;
-  }
+  /* Không responsive modal-content/template-store-row */
 }
 </style> 
