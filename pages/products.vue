@@ -136,7 +136,7 @@
               <div class="form-row">
                 <label>Src:<input v-model="image.src" /></label>
                 <label>Position:<input type="number" v-model.number="image.position" /></label>
-                <label>Variant IDs (comma separated):<input v-model="image.variant_idsStr" /></label>
+                <!-- <label>Variant IDs (comma separated):<input v-model="image.variant_idsStr" /></label> -->
                 <button type="button" class="remove-btn" @click="removeImage(iIdx)">Remove Image</button>
                 <div v-if="image.src" style="margin-left:12px;display:flex;align-items:center;">
                   <img :src="image.src" alt="Preview" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee;" />

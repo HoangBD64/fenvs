@@ -16,7 +16,7 @@
       <div class="order-filter-row">
         <label>Status:
           <select v-model="filterStatus">
-            <option value="">Any</option>
+            <option value="any">Any</option>
             <option value="open">Open</option>
             <option value="closed">Closed</option>
             <option value="cancelled">Cancelled</option>
@@ -24,7 +24,7 @@
         </label>
         <label>Fulfillment Status:
           <select v-model="filterFulfillmentStatus">
-            <option value="">Any</option>
+            <option value="any">Any</option>
             <option value="fulfilled">Fulfilled</option>
             <option value="partial">Partial</option>
           </select>
