@@ -307,16 +307,16 @@ const fetchProducts = async () => {
   }
 }
 
-const fetchOrders = async () => {
-  if (!filterStoreId.value) {
-    orders.value = []
-    return
-  }
-  let url = `https://hoangnd.shopprint.click/api/order.json?store_id=${encodeURIComponent(filterStoreId.value)}`
-  const res = await fetch(url)
-  const data = await res.json()
-  orders.value = data.orders || data
-}
+// const fetchOrders = async () => {
+//   if (!filterStoreId.value) {
+//     orders.value = []
+//     return
+//   }
+//   let url = `https://hoangnd.shopprint.click/api/order.json?store_id=${encodeURIComponent(filterStoreId.value)}`
+//   const res = await fetch(url)
+//   const data = await res.json()
+//   orders.value = data.orders || data
+// }
 
 const fetchStoreIds = async () => {
   const res = await fetch('https://hoangnd.shopprint.click/api/store.json')
@@ -335,7 +335,7 @@ watch([filterStoreId, filterIDs], () => {
   fetchProducts()
 }, { immediate: true })
 
-watch(filterStoreId, fetchOrders, { immediate: true })
+//watch(filterStoreId, fetchOrders, { immediate: true })
 
 onMounted(() => {
   fetchStoreIds()
@@ -446,7 +446,7 @@ function prepareFormData() {
 async function saveProduct() {
   const payload = prepareFormData()
   if (editingProduct.value) {
-    await fetch(`https://hoangnd.shopprint.click/api/product/${editingProduct.value.id}.json?store_id=${encodeURIComponent(form.value.store_id)}`, {
+    await fetch(`https://hoangnd.shopprint.click/api/product/${editingProduct.value.id}?store_id=${encodeURIComponent(form.value.store_id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -462,8 +462,12 @@ async function saveProduct() {
   fetchProducts()
 }
 async function deleteProduct(id) {
-  await fetch(`https://hoangnd.shopprint.click/api/products/${id}.json`, { method: 'DELETE' })
-  fetchProducts()
+  if (!filterStoreId.value) {
+    alert('Vui lòng chọn Store trước khi xóa sản phẩm!');
+    return;
+  }
+  await fetch(`https://hoangnd.shopprint.click/api/product/${id}?store_id=${encodeURIComponent(filterStoreId.value)}`, { method: 'DELETE' });
+  fetchProducts();
 }
 async function syncProducts() {
   if (!filterStoreId.value) return
