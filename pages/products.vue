@@ -13,6 +13,10 @@
           </option>
         </select>
       </label>
+      <label>
+        Search Title:
+        <input v-model="filterTitle" placeholder="Enter product title..." />
+      </label>
       <button class="sync-btn" @click="syncProducts" :disabled="!filterStoreId">Đồng bộ</button>
     </div>
     <button @click="showCreate = true">Create Product</button>
@@ -265,6 +269,7 @@ const filterStoreId = ref('')
 const filterPageInfo = ref('')
 const filterLimit = ref(10)
 const filterIDs = ref('')
+const filterTitle = ref('') // Thêm biến filterTitle
 const orders = ref([])
 const syncMessage = ref('')
 const nextPageInfo = ref('')
@@ -307,11 +312,13 @@ const fetchProducts = async () => {
     if (filterPageInfo.value) params.push(`page_info=${encodeURIComponent(filterPageInfo.value)}`)
     params.push(`limit=10`)
     if (filterIDs.value) params.push(`ids=${encodeURIComponent(filterIDs.value)}`)
+    if (filterTitle.value) params.push(`title=${encodeURIComponent(filterTitle.value)}`) // Thêm param title
   } else {
     // Offset-based pagination
     params.push(`limit=${filterLimit.value}`)
     params.push(`page=${filterPage.value}`)
     if (filterIDs.value) params.push(`ids=${encodeURIComponent(filterIDs.value)}`)
+    if (filterTitle.value) params.push(`title=${encodeURIComponent(filterTitle.value)}`) // Thêm param title
   }
   if (params.length) url += '?' + params.join('&')
   const res = await fetch(url)
@@ -346,7 +353,7 @@ const fetchStoreIds = async () => {
 }
 
 
-watch([filterStoreId, filterIDs], () => {
+watch([filterStoreId, filterIDs, filterTitle], () => {
   filterPageInfo.value = ''
   pageStack.value = []
   filterPage.value = 1 // reset page when filter changes
@@ -378,8 +385,13 @@ onMounted(() => {
 
 function editProduct(product) {
   editingProduct.value = product
-  form.value = { ...product }
-  showCreate.value = false
+  form.value = {
+    ...product,
+    variants: Array.isArray(product.variants) ? product.variants : [],
+    options: Array.isArray(product.options) ? product.options : [],
+    images: Array.isArray(product.images) ? product.images : []
+  }
+  showCreate.value = true
 }
 function closeModal() {
   editingProduct.value = null
@@ -454,13 +466,13 @@ function prepareFormData() {
   const options = form.value.options.map(opt => ({
     name: opt.name,
     values: opt.valuesStr.split(',').map(v => v.trim()).filter(Boolean)
-  }))
+  }));
   // Convert images variant_idsStr to array of int
   const images = form.value.images.map(img => ({
     src: img.src,
     position: img.position,
-    variant_ids: img.variant_idsStr.split(',').map(id => parseInt(id)).filter(id => !isNaN(id))
-  }))
+    variant_ids: (img.variant_idsStr || '').split(',').map(id => parseInt(id)).filter(id => !isNaN(id))
+  }));
   // Convert compare_at_price, option2, option3, sku to null if empty string
   const variants = form.value.variants.map(variant => ({
     ...variant,
@@ -468,13 +480,19 @@ function prepareFormData() {
     option2: variant.option2 === '' ? null : variant.option2,
     option3: variant.option3 === '' ? null : variant.option3,
     sku: variant.sku === '' ? null : variant.sku
-  }))
-  return {
+  }));
+  // Tạo payload
+  const payload = {
     ...form.value,
-    options,
     images,
     variants
+  };
+  // Nếu options không rỗng thì mới thêm vào payload
+  if (options.length > 0) {
+    payload.options = options;
   }
+  // Nếu options rỗng thì không thêm trường này
+  return payload;
 }
 async function saveProduct() {
   const payload = prepareFormData()
