@@ -61,8 +61,8 @@
       <div class="modal-content">
         <h3>{{ editingProduct ? 'Edit' : 'Create' }} Product</h3>
         <form @submit.prevent="saveProduct">
-          <div v-if="!editingProduct && templateList.length" class="template-store-row">
-            <label class="template-label">
+          <div v-if="!editingProduct" class="template-store-row">
+            <label v-if="templateList.length" class="template-label">
               <span class="template-icon">📋</span> Chọn template:
               <select v-model="selectedTemplateId" class="template-select" @change="() => { const t = templateList.find(t => t.id === selectedTemplateId); if (t) applyTemplate(t) }">
                 <option value="">-- Không chọn --</option>
@@ -351,6 +351,50 @@ watch(filterTitle, () => {
     fetchProducts()
   }, 300)
 })
+
+watch(showCreate, async (val) => {
+  if (val && !editingProduct.value) {
+    // Chỉ load khi tạo mới
+    try {
+      const res = await fetch('https://hoangnd.shopprint.click/api/template.json')
+      const data = await res.json()
+      if (Array.isArray(data.template)) {
+        templateList.value = data.template
+      } else if (Array.isArray(data)) {
+        templateList.value = data
+      } else {
+        templateList.value = []
+      }
+    } catch (e) {
+      templateList.value = []
+    }
+    selectedTemplateId.value = ''
+  }
+})
+
+watch(editingProduct, (val) => {
+  if (val) {
+    form.value = {
+      ...val,
+      variants: Array.isArray(val.variants) ? val.variants : [],
+      options: Array.isArray(val.options) ? val.options : [],
+      images: Array.isArray(val.images) ? val.images : []
+    }
+  } else {
+    form.value = defaultForm()
+  }
+})
+
+
+watch(selectedTemplateId, (val) => {
+  if (val) {
+    const template = templateList.value.find(t => t.id === val)
+    if (template) {
+      applyTemplate(template)
+    }
+  }
+})
+
 
 watch(filterStoreId, fetchOrders, { immediate: true })
 
