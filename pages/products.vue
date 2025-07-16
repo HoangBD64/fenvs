@@ -53,10 +53,9 @@
       </tbody>
     </table>
     <div class="pagination-box">
-      <button @click="prevPage" :disabled="filterStoreId ? pageStack.length === 0 : filterPage === 1">Prev</button>
-      <span v-if="filterStoreId">Page {{ pageStack.length + 1 }}</span>
-      <span v-else>Page {{ filterPage }} / {{ totalPages }}</span>
-      <button @click="nextPage" :disabled="filterStoreId ? !nextPageInfo : filterPage === totalPages">Next</button>
+      <button @click="prevPage" :disabled="filterPage === 1">Prev</button>
+      <span>Page {{ filterPage }} / {{ totalPages }}</span>
+      <button @click="nextPage" :disabled="filterPage === totalPages">Next</button>
     </div>
     <div v-if="showCreate || editingProduct" class="modal" @click.self="closeModal">
       <div class="modal-content">
@@ -258,6 +257,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
+let filterTitleDebounceTimeout = null
 const products = ref([])
 const showCreate = ref(false)
 const editingProduct = ref(null)
@@ -272,8 +272,6 @@ const filterIDs = ref('')
 const filterTitle = ref('') // Thêm biến filterTitle
 const orders = ref([])
 const syncMessage = ref('')
-const nextPageInfo = ref('')
-const pageStack = ref([]) // stack lưu page_info các trang trước
 const filterPage = ref(1)
 const totalProducts = ref(0)
 const totalPages = ref(1)
@@ -306,30 +304,17 @@ function normalizeProductImages(product) {
 const fetchProducts = async () => {
   let url = 'https://hoangnd.shopprint.click/api/product.json'
   const params = []
-  if (filterStoreId.value) {
-    // Cursor-based pagination
-    params.push(`store_id=${encodeURIComponent(filterStoreId.value)}`)
-    if (filterPageInfo.value) params.push(`page_info=${encodeURIComponent(filterPageInfo.value)}`)
-    params.push(`limit=10`)
-    if (filterIDs.value) params.push(`ids=${encodeURIComponent(filterIDs.value)}`)
-    if (filterTitle.value) params.push(`title=${encodeURIComponent(filterTitle.value)}`) // Thêm param title
-  } else {
-    // Offset-based pagination
-    params.push(`limit=${filterLimit.value}`)
-    params.push(`page=${filterPage.value}`)
-    if (filterIDs.value) params.push(`ids=${encodeURIComponent(filterIDs.value)}`)
-    if (filterTitle.value) params.push(`title=${encodeURIComponent(filterTitle.value)}`) // Thêm param title
-  }
+  params.push(`limit=${filterLimit.value}`)
+  params.push(`page=${filterPage.value}`)
+  if (filterStoreId.value) params.push(`store_id=${encodeURIComponent(filterStoreId.value)}`)
+  if (filterIDs.value) params.push(`ids=${encodeURIComponent(filterIDs.value)}`)
+  if (filterTitle.value) params.push(`title=${encodeURIComponent(filterTitle.value)}`)
   if (params.length) url += '?' + params.join('&')
   const res = await fetch(url)
   const data = await res.json()
-  // Normalize images for each product
   products.value = (data.products || data).map(normalizeProductImages)
-  nextPageInfo.value = data.page_info || ''
-  if (!filterStoreId.value) {
-    totalProducts.value = data.total || (Array.isArray(data.products) ? data.products.length : 0)
-    totalPages.value = Math.max(1, Math.ceil(totalProducts.value / filterLimit.value))
-  }
+  totalProducts.value = data.total || (Array.isArray(data.products) ? data.products.length : 0)
+  totalPages.value = Math.max(1, Math.ceil(totalProducts.value / filterLimit.value))
 }
 
 const fetchOrders = async () => {
@@ -353,29 +338,21 @@ const fetchStoreIds = async () => {
 }
 
 
-watch([filterStoreId, filterIDs, filterTitle], () => {
-  filterPageInfo.value = ''
-  pageStack.value = []
-  filterPage.value = 1 // reset page when filter changes
+watch([filterStoreId, filterIDs], () => {
+  filterPage.value = 1
   fetchProducts()
 }, { immediate: true })
 
-watch(filterStoreId, fetchOrders, { immediate: true })
-
-// Gọi API lấy template khi mở modal thêm sản phẩm
-watch(showCreate, async (val) => {
-  if (val && !editingProduct.value) {
-    // Chỉ load khi tạo mới
-    try {
-      const res = await fetch('https://hoangnd.shopprint.click/api/template.json')
-      const data = await res.json()
-      templateList.value = Array.isArray(data.template) ? data.template : []
-    } catch (e) {
-      templateList.value = []
-    }
-    selectedTemplateId.value = ''
-  }
+// Debounce filterTitle
+watch(filterTitle, () => {
+  filterPage.value = 1
+  if (filterTitleDebounceTimeout) clearTimeout(filterTitleDebounceTimeout)
+  filterTitleDebounceTimeout = setTimeout(() => {
+    fetchProducts()
+  }, 300)
 })
+
+watch(filterStoreId, fetchOrders, { immediate: true })
 
 onMounted(() => {
   fetchStoreIds()
@@ -542,34 +519,15 @@ function closeView() {
   viewingProduct.value = null
 }
 function nextPage() {
-  if (filterStoreId.value) {
-    // Cursor-based
-    if (nextPageInfo.value) {
-      pageStack.value.push(filterPageInfo.value)
-      filterPageInfo.value = nextPageInfo.value
-      fetchProducts()
-    }
-  } else {
-    // Offset-based
-    if (filterPage.value < totalPages.value) {
-      filterPage.value++
-      fetchProducts()
-    }
+  if (filterPage.value < totalPages.value) {
+    filterPage.value++
+    fetchProducts()
   }
 }
 function prevPage() {
-  if (filterStoreId.value) {
-    // Cursor-based
-    if (pageStack.value.length > 0) {
-      filterPageInfo.value = pageStack.value.pop() || ''
-      fetchProducts()
-    }
-  } else {
-    // Offset-based
-    if (filterPage.value > 1) {
-      filterPage.value--
-      fetchProducts()
-    }
+  if (filterPage.value > 1) {
+    filterPage.value--
+    fetchProducts()
   }
 }
 
