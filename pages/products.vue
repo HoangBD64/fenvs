@@ -20,6 +20,7 @@
       <button class="sync-btn" @click="syncProducts" :disabled="!filterStoreId">Đồng bộ</button>
     </div>
     <button @click="showCreate = true">Create Product</button>
+    <span v-if="productMessage" class="product-message">{{ productMessage }}</span>
     <table>
       <thead>
         <tr>
@@ -111,7 +112,7 @@
                 <label>Compare At Price:<input type="number" v-model.number="variant.compare_at_price" placeholder="0" min="0" /></label>
                 <label>Quantity:<input type="number" v-model.number="variant.inventory_quantity" placeholder="0" min="0" /></label>
                 <label>SKU:<input v-model="variant.sku" placeholder="SKU..." /></label>
-                <label>Variant Image URL:<input v-model="variant.image" placeholder="Paste image link..." /></label>
+                <!-- <label>Variant Image URL:<input v-model="variant.image" placeholder="Paste image link..." /></label> -->
                 <div v-if="variant.image" style="margin-left:12px;display:flex;align-items:center;">
                   <img :src="variant.image" alt="Preview" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee;" />
                 </div>
@@ -139,7 +140,7 @@
               <div class="form-row">
                 <label>Src:<input v-model="image.src" /></label>
                 <label>Position:<input type="number" v-model.number="image.position" /></label>
-                <!-- <label>Variant IDs (comma separated):<input v-model="image.variant_idsStr" /></label> -->
+                <!-- <label>Variant IDs (comma separated):<input v-model="image.variant_idsStr" /> -->
                 <button type="button" class="remove-btn" @click="removeImage(iIdx)">Remove Image</button>
                 <div v-if="image.src" style="margin-left:12px;display:flex;align-items:center;">
                   <img :src="image.src" alt="Preview" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee;" />
@@ -272,6 +273,7 @@ const filterIDs = ref('')
 const filterTitle = ref('') // Thêm biến filterTitle
 const orders = ref([])
 const syncMessage = ref('')
+const productMessage = ref('') // Thông báo cho thao tác sản phẩm
 const filterPage = ref(1)
 const totalProducts = ref(0)
 const totalPages = ref(1)
@@ -317,16 +319,16 @@ const fetchProducts = async () => {
   totalPages.value = Math.max(1, Math.ceil(totalProducts.value / filterLimit.value))
 }
 
-const fetchOrders = async () => {
-  if (!filterStoreId.value) {
-    orders.value = []
-    return
-  }
-  let url = `https://hoangnd.shopprint.click/api/order.json?store_id=${encodeURIComponent(filterStoreId.value)}`
-  const res = await fetch(url)
-  const data = await res.json()
-  orders.value = data.orders || data
-}
+// const fetchOrders = async () => {
+//   if (!filterStoreId.value) {
+//     orders.value = []
+//     return
+//   }
+//   let url = `https://hoangnd.shopprint.click/api/order.json?store_id=${encodeURIComponent(filterStoreId.value)}`
+//   const res = await fetch(url)
+//   const data = await res.json()
+//   orders.value = data.orders || data
+// }
 
 const fetchStoreIds = async () => {
   const res = await fetch('https://hoangnd.shopprint.click/api/store.json')
@@ -374,11 +376,25 @@ watch(showCreate, async (val) => {
 
 watch(editingProduct, (val) => {
   if (val) {
+    // Map image_id sang image URL cho variant
+    const imagesArr = Array.isArray(val.images) ? val.images : [];
+    const variantsArr = Array.isArray(val.variants) ? val.variants : [];
     form.value = {
       ...val,
-      variants: Array.isArray(val.variants) ? val.variants : [],
-      options: Array.isArray(val.options) ? val.options : [],
-      images: Array.isArray(val.images) ? val.images : []
+      variants: variantsArr.map(variant => ({
+        ...variant,
+        image: variant.image_id
+          ? (imagesArr.find(img => img.id === variant.image_id)?.src || '')
+          : (variant.image || '')
+      })),
+      options: Array.isArray(val.options)
+        ? val.options.map(o => ({
+            ...o,
+            // valuesStr: Array.isArray(o.values) ? o.values.join(', ') : (o.valuesStr || '')
+            valuesStr: Array.isArray(o.values) ? [...new Set(o.values)].join(', ') : (o.valuesStr || '')
+          }))
+        : [],
+      images: imagesArr
     }
   } else {
     form.value = defaultForm()
@@ -396,7 +412,7 @@ watch(selectedTemplateId, (val) => {
 })
 
 
-watch(filterStoreId, fetchOrders, { immediate: true })
+// watch(filterStoreId, fetchOrders, { immediate: true })
 
 onMounted(() => {
   fetchStoreIds()
@@ -418,6 +434,7 @@ function closeModal() {
   editingProduct.value = null
   showCreate.value = false
   form.value = defaultForm()
+  fetchProducts()
 }
 
 function closeAddStore() {
@@ -461,7 +478,7 @@ function addVariant() {
     weight_unit: 'kg', // Hợp lệ: 'kg', 'g', 'lb', 'oz'
     inventory_quantity: 0,
     inventory_management: null, // hoặc 'shopify' nếu dùng quản lý kho
-    fulfillment_service: 'manual', // Shopify yêu cầu
+    fulfillment_service: 'manual', // Luôn set mặc định
     requires_shipping: true,
     taxable: true
   })
@@ -483,60 +500,104 @@ function removeImage(idx) {
   form.value.images.splice(idx, 1)
 }
 function prepareFormData() {
-  // Convert options valuesStr to array
-  const options = form.value.options.map(opt => ({
-    name: opt.name,
-    values: opt.valuesStr.split(',').map(v => v.trim()).filter(Boolean)
-  }));
-  // Convert images variant_idsStr to array of int
-  const images = form.value.images.map(img => ({
-    src: img.src,
-    position: img.position,
+  // Lọc option trùng name, chỉ giữ lại option đầu tiên
+  const seenOptionNames = new Set();
+  const options = [];
+  for (const opt of form.value.options) {
+    const name = opt.name?.trim();
+    if (name && !seenOptionNames.has(name)) {
+      options.push({
+        name,
+        values: Array.isArray(opt.values)
+          ? opt.values
+          : (opt.valuesStr || '').split(',').map(v => v.trim()).filter(Boolean)
+      });
+      seenOptionNames.add(name);
+    }
+  }
+
+  // Convert images variant_idsStr to array of int, và đảm bảo có id
+  const images = form.value.images.map((img, idx) => ({
+    ...img,
+    id: img.id || img._local_id || (img.src ? idx + 1 : undefined),
     variant_ids: (img.variant_idsStr || '').split(',').map(id => parseInt(id)).filter(id => !isNaN(id))
   }));
-  // Convert compare_at_price, option2, option3, sku to null if empty string
-  const variants = form.value.variants.map(variant => ({
-    ...variant,
-    compare_at_price: variant.compare_at_price === '' ? null : variant.compare_at_price,
-    option2: variant.option2 === '' ? null : variant.option2,
-    option3: variant.option3 === '' ? null : variant.option3,
-    sku: variant.sku === '' ? null : variant.sku
-  }));
+
+  // Map variant.image (URL) sang variant.image_id dựa trên images
+  const variants = form.value.variants.map(variant => {
+    let image_id = null;
+    if (variant.image) {
+      const found = images.find(img => img.src === variant.image);
+      if (found && found.id) image_id = found.id;
+    }
+    return {
+      ...variant,
+      price: variant.price !== '' && variant.price !== null && !isNaN(Number(variant.price)) ? parseInt(variant.price) : 0,
+      compare_at_price: variant.compare_at_price === '' || variant.compare_at_price === null || isNaN(Number(variant.compare_at_price)) ? null : parseInt(variant.compare_at_price),
+      option2: variant.option2 === '' ? null : variant.option2,
+      option3: variant.option3 === '' ? null : variant.option3,
+      sku: variant.sku === '' ? null : variant.sku,
+      fulfillment_service: !variant.fulfillment_service || variant.fulfillment_service === '' ? 'manual' : variant.fulfillment_service,
+      image_id: image_id
+    }
+  });
+
   // Tạo payload
   const payload = {
     ...form.value,
     images,
-    variants
+    variants,
+    options
   };
-  // Nếu options không rỗng thì mới thêm vào payload
-  if (options.length > 0) {
-    payload.options = options;
-  }
-  // Nếu options rỗng thì không thêm trường này
   return payload;
 }
 async function saveProduct() {
   const payload = prepareFormData()
-  if (editingProduct.value) {
-    await fetch(`https://hoangnd.shopprint.click/api/product/${editingProduct.value.id}?store_id=${encodeURIComponent(form.value.store_id)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-  } else {
-    await fetch(`https://hoangnd.shopprint.click/api/product.json?store_id=${encodeURIComponent(form.value.store_id)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
+  let success = false
+  try {
+    let res
+    if (editingProduct.value) {
+      res = await fetch(`https://hoangnd.shopprint.click/api/product/${editingProduct.value.id}?store_id=${encodeURIComponent(form.value.store_id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+    } else {
+      res = await fetch(`https://hoangnd.shopprint.click/api/product.json?store_id=${encodeURIComponent(form.value.store_id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+    }
+    if (res && res.ok) {
+      productMessage.value = editingProduct.value ? 'Cập nhật sản phẩm thành công!' : 'Thêm sản phẩm thành công!'
+      success = true
+    } else {
+      productMessage.value = editingProduct.value ? 'Cập nhật sản phẩm thất bại!' : 'Thêm sản phẩm thất bại!'
+    }
+  } catch {
+    productMessage.value = editingProduct.value ? 'Cập nhật sản phẩm thất bại!' : 'Thêm sản phẩm thất bại!'
   }
   closeModal()
   fetchProducts()
+  setTimeout(() => productMessage.value = '', 2000)
 }
 async function deleteProduct(id) {
   // Use the current filterStoreId as store_id for deletion
-  await fetch(`https://hoangnd.shopprint.click/api/product/${id}?store_id=${encodeURIComponent(filterStoreId.value)}`, { method: 'DELETE' })
+  let success = false
+  try {
+    const res = await fetch(`https://hoangnd.shopprint.click/api/product/${id}?store_id=${encodeURIComponent(filterStoreId.value)}`, { method: 'DELETE' })
+    if (res && res.ok) {
+      productMessage.value = 'Xóa sản phẩm thành công!'
+      success = true
+    } else {
+      productMessage.value = 'Xóa sản phẩm thất bại!'
+    }
+  } catch {
+    productMessage.value = 'Xóa sản phẩm thất bại!'
+  }
   fetchProducts()
+  setTimeout(() => productMessage.value = '', 2000)
 }
 async function syncProducts() {
   if (!filterStoreId.value) return
@@ -605,7 +666,8 @@ function applyTemplate(template) {
     })),
     options: (template.options || []).map(o => ({
       name: o.name || '',
-      valuesStr: Array.isArray(o.values) ? o.values.join(', ') : ''
+      // valuesStr: Array.isArray(o.values) ? o.values.join(', ') : ''
+      valuesStr: Array.isArray(o.values) ? [...new Set(o.values)].join(', ') : ''
     })),
     images: (template.images || []).map(img => ({
       src: img.src || '',
@@ -1088,6 +1150,13 @@ input:focus, textarea:focus, select:focus {
   background: #cbd5e1 !important;
   color: #888 !important;
   box-shadow: none !important;
+}
+.product-message {
+  color: #3182ce;
+  font-weight: 600;
+  margin-left: 16px;
+  font-size: 1rem;
+  display: inline-block;
 }
 @media (max-width: 700px) {
   .container {
