@@ -112,9 +112,17 @@
                 <label>Compare At Price:<input type="number" v-model.number="variant.compare_at_price" placeholder="0" min="0" /></label>
                 <label>Quantity:<input type="number" v-model.number="variant.inventory_quantity" placeholder="0" min="0" /></label>
                 <label>SKU:<input v-model="variant.sku" placeholder="SKU..." /></label>
-                <!-- <label>Variant Image URL:<input v-model="variant.image" placeholder="Paste image link..." /></label> -->
-                <div v-if="variant.image" style="margin-left:12px;display:flex;align-items:center;">
-                  <img :src="variant.image" alt="Preview" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee;" />
+                <!-- Image select for variant -->
+                <label>Image:
+                  <select v-model="variant.image_id">
+                    <option :value="null">-- No image --</option>
+                    <option v-for="img in form.images" :key="img.id || img._local_id || img.src" :value="img.id">
+                      {{ img.src ? img.src.split('/').pop() : img.id }}
+                    </option>
+                  </select>
+                </label>
+                <div v-if="variant.image_id">
+                  <img :src="form.images.find(img => img.id === variant.image_id)?.src" alt="Preview" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #eee;" />
                 </div>
                 <button type="button" class="remove-btn" @click="removeVariant(vIdx)">Remove</button>
               </div>
@@ -339,6 +347,25 @@ const fetchStoreIds = async () => {
   }
 }
 
+// Thêm hàm fetchImagesByProductId
+async function fetchImagesByProductId(productId) {
+  if (!productId) {
+    form.value.images = []
+    return
+  }
+  try {
+    const res = await fetch(`https://hoangnd.shopprint.click/api/images.json?product_id=${productId}`)
+    const data = await res.json()
+    if (data && data.status && Array.isArray(data.data)) {
+      form.value.images = data.data
+    } else {
+      form.value.images = []
+    }
+  } catch {
+    form.value.images = []
+  }
+}
+
 
 watch([filterStoreId, filterIDs], () => {
   filterPage.value = 1
@@ -354,6 +381,7 @@ watch(filterTitle, () => {
   }, 300)
 })
 
+// Khi mở form tạo mới (showCreate = true, !editingProduct)
 watch(showCreate, async (val) => {
   if (val && !editingProduct.value) {
     // Chỉ load khi tạo mới
@@ -371,22 +399,34 @@ watch(showCreate, async (val) => {
       templateList.value = []
     }
     selectedTemplateId.value = ''
+    form.value.images = [] // reset images khi tạo mới
   }
 })
 
-watch(editingProduct, (val) => {
+// Khi mở form cập nhật (editingProduct thay đổi)
+watch(editingProduct, async (val) => {
+  if (val && val.id) {
+    await fetchImagesByProductId(val.id)
+  }
   if (val) {
     // Map image_id sang image URL cho variant
     const imagesArr = Array.isArray(val.images) ? val.images : [];
     const variantsArr = Array.isArray(val.variants) ? val.variants : [];
     form.value = {
       ...val,
-      variants: variantsArr.map(variant => ({
-        ...variant,
-        image: variant.image_id
-          ? (imagesArr.find(img => img.id === variant.image_id)?.src || '')
-          : (variant.image || '')
-      })),
+      variants: variantsArr.map(variant => {
+        let image_id = variant.image_id || variant.imageId || variant.imageID || variant.image_id;
+        if (!image_id && variant.image) {
+          // Nếu chỉ có image url, map sang id nếu có
+          const found = imagesArr.find(img => img.src === variant.image);
+          if (found && found.id) image_id = found.id;
+        }
+        return {
+          ...variant,
+          image_id: image_id ?? null,
+          image: image_id ? (imagesArr.find(img => img.id === image_id)?.src || '') : (variant.image || '')
+        };
+      }),
       options: Array.isArray(val.options)
         ? val.options.map(o => ({
             ...o,
@@ -480,7 +520,8 @@ function addVariant() {
     inventory_management: null, // hoặc 'shopify' nếu dùng quản lý kho
     fulfillment_service: 'manual', // Luôn set mặc định
     requires_shipping: true,
-    taxable: true
+    taxable: true,
+    image_id: null // Initialize with null
   })
 }
 
@@ -525,20 +566,21 @@ function prepareFormData() {
 
   // Map variant.image (URL) sang variant.image_id dựa trên images
   const variants = form.value.variants.map(variant => {
-    let image_id = null;
-    if (variant.image) {
+    let image_id = variant.image_id;
+    if (!image_id && variant.image) {
       const found = images.find(img => img.src === variant.image);
       if (found && found.id) image_id = found.id;
     }
     return {
       ...variant,
+      option1: variant.title, // Đảm bảo option1 luôn là title
       price: variant.price !== '' && variant.price !== null && !isNaN(Number(variant.price)) ? parseInt(variant.price) : 0,
       compare_at_price: variant.compare_at_price === '' || variant.compare_at_price === null || isNaN(Number(variant.compare_at_price)) ? null : parseInt(variant.compare_at_price),
       option2: variant.option2 === '' ? null : variant.option2,
       option3: variant.option3 === '' ? null : variant.option3,
       sku: variant.sku === '' ? null : variant.sku,
       fulfillment_service: !variant.fulfillment_service || variant.fulfillment_service === '' ? 'manual' : variant.fulfillment_service,
-      image_id: image_id
+      image_id: image_id ? Number(image_id) : null
     }
   });
 
@@ -662,7 +704,8 @@ function applyTemplate(template) {
       inventory_management: v.inventory_management || null,
       fulfillment_service: v.fulfillment_service || 'manual',
       requires_shipping: v.requires_shipping !== undefined ? v.requires_shipping : true,
-      taxable: v.taxable !== undefined ? v.taxable : true
+      taxable: v.taxable !== undefined ? v.taxable : true,
+      image_id: null // Initialize with null
     })),
     options: (template.options || []).map(o => ({
       name: o.name || '',
