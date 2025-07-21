@@ -557,12 +557,36 @@ function prepareFormData() {
     }
   }
 
+  // Map variant.image_id sang variant_id cho image.variant_ids
+  // Bước 1: Tạo map image_id => [variant_id,...]
+  const imageIdToVariantIds = {};
+  form.value.variants.forEach(variant => {
+    if (variant.image_id) {
+      const imgId = Number(variant.image_id);
+      if (!imageIdToVariantIds[imgId]) imageIdToVariantIds[imgId] = [];
+      if (variant.id) {
+        imageIdToVariantIds[imgId].push(variant.id);
+      }
+    }
+  });
+
   // Convert images variant_idsStr to array of int, và đảm bảo có id
-  const images = form.value.images.map((img, idx) => ({
-    ...img,
-    id: img.id || img._local_id || (img.src ? idx + 1 : undefined),
-    variant_ids: (img.variant_idsStr || '').split(',').map(id => parseInt(id)).filter(id => !isNaN(id))
-  }));
+  const images = form.value.images.map((img, idx) => {
+    const imgId = img.id || img._local_id || (img.src ? idx + 1 : undefined);
+    // Lấy variant_ids từ map nếu có
+    let variant_ids = imageIdToVariantIds[imgId] || [];
+    // Nếu có variant_idsStr thủ công, gộp vào (ưu tiên map)
+    if (img.variant_idsStr) {
+      const manualIds = (img.variant_idsStr || '').split(',').map(id => parseInt(id)).filter(id => !isNaN(id));
+      // Gộp, loại trùng
+      variant_ids = Array.from(new Set([...variant_ids, ...manualIds]));
+    }
+    return {
+      ...img,
+      id: imgId,
+      variant_ids
+    };
+  });
 
   // Map variant.image (URL) sang variant.image_id dựa trên images
   const variants = form.value.variants.map(variant => {
