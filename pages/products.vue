@@ -165,7 +165,7 @@
         </form>
       </div>
     </div>
-    <div v-if="viewingProduct" class="modal">
+    <div v-if="viewingProduct" class="modal" @click.self="closeView">
       <div class="modal-content">
         <h3>Product Detail</h3>
         <div class="product-detail-box">
@@ -231,7 +231,7 @@
               <div v-for="(img, idx) in viewingProduct.images" :key="idx" class="image-item">
                 <img v-if="img.src" :src="img.src" alt="Product Image" class="detail-img" />
                 <div><b>Position:</b> {{ img.position }}</div>
-                <div><b>Variant IDs:</b> {{ Array.isArray(img.variant_ids) ? img.variant_ids.join(', ') : img.variant_ids }}</div>
+                <!-- <div><b>Variant IDs:</b> {{ Array.isArray(img.variant_ids) ? img.variant_ids.join(', ') : img.variant_ids }}</div> -->
               </div>
             </div>
           </div>
@@ -683,8 +683,16 @@ async function syncProducts() {
     setTimeout(() => syncMessage.value = '', 2000)
   }
 }
-function viewProduct(product) {
-  viewingProduct.value = product
+async function viewProduct(product) {
+  // Lấy chi tiết sản phẩm từ API, truyền thêm store_id
+  try {
+    const res = await fetch(`https://hoangnd.shopprint.click/api/product.json/${product.id}?store_id=${encodeURIComponent(product.store_id)}`)
+    const data = await res.json()
+    // Nếu backend trả về dạng { product: {...} } thì lấy product, còn không thì lấy data luôn
+    viewingProduct.value = data.product || data
+  } catch (e) {
+    viewingProduct.value = null
+  }
 }
 function closeView() {
   viewingProduct.value = null
