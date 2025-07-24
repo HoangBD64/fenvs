@@ -60,8 +60,8 @@
           <td>
             <div class="action-btn-group">
               <button @click="viewOrder(order)">View</button>
-              <button @click="editOrder(order)">Edit</button>
-              <button @click="deleteOrder(order.id)">Delete</button>
+              <!-- <button @click="editOrder(order)">Edit</button> -->
+              <!-- <button @click="deleteOrder(order.id)">Delete</button> -->
             </div>
           </td>
         </tr>

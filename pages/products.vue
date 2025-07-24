@@ -19,7 +19,10 @@
       </label>
       <button class="sync-btn" @click="syncProducts" :disabled="!filterStoreId">Đồng bộ</button>
     </div>
-    <button @click="showCreate = true">Create Product</button>
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+      <button @click="showCreate = true">Create Product</button>
+      <span v-if="syncMessage" class="sync-message" style="margin-left: 16px;">{{ syncMessage }}</span>
+    </div>
     <span v-if="productMessage" class="product-message">{{ productMessage }}</span>
     <table>
       <thead>
@@ -57,6 +60,9 @@
       <button @click="prevPage" :disabled="filterPage === 1">Prev</button>
       <span>Page {{ filterPage }} / {{ totalPages }}</span>
       <button @click="nextPage" :disabled="filterPage === totalPages">Next</button>
+    </div>
+    <div class="total-products-box">
+      Tổng số sản phẩm: <span class="total-products-number">{{ totalProducts }}</span>
     </div>
     <div v-if="showCreate || editingProduct" class="modal" @click.self="closeModal">
       <div class="modal-content">
@@ -260,7 +266,6 @@
       </div>
     </div>
     <NuxtLink to="/">Back</NuxtLink>
-    <span v-if="syncMessage" class="sync-message">{{ syncMessage }}</span>
   </div>
 </template>
 
@@ -312,7 +317,7 @@ function normalizeProductImages(product) {
 }
 
 const fetchProducts = async () => {
-  let url = 'http://localhost:4000/api/product.json'
+  let url = 'https://hoangnd.shopprint.click/api/product.json'
   const params = []
   params.push(`limit=${filterLimit.value}`)
   params.push(`page=${filterPage.value}`)
@@ -332,14 +337,14 @@ const fetchProducts = async () => {
 //     orders.value = []
 //     return
 //   }
-//   let url = `http://localhost:4000/api/order.json?store_id=${encodeURIComponent(filterStoreId.value)}`
+//   let url = `https://hoangnd.shopprint.click/api/order.json?store_id=${encodeURIComponent(filterStoreId.value)}`
 //   const res = await fetch(url)
 //   const data = await res.json()
 //   orders.value = data.orders || data
 // }
 
 const fetchStoreIds = async () => {
-  const res = await fetch('http://localhost:4000/api/store.json')
+  const res = await fetch('https://hoangnd.shopprint.click/api/store.json')
   const data = await res.json()
   storeList.value = Array.isArray(data) ? data : []
   if (!filterStoreId.value && storeList.value.length > 0) {
@@ -354,7 +359,7 @@ async function fetchImagesByProductId(productId) {
     return
   }
   try {
-    const res = await fetch(`http://localhost:4000/api/images.json?product_id=${productId}`)
+    const res = await fetch(`https://hoangnd.shopprint.click/api/images.json?product_id=${productId}`)
     const data = await res.json()
     if (data && data.status && Array.isArray(data.data)) {
       form.value.images = data.data
@@ -386,7 +391,7 @@ watch(showCreate, async (val) => {
   if (val && !editingProduct.value) {
     // Chỉ load khi tạo mới
     try {
-      const res = await fetch('http://localhost:4000/api/template.json')
+      const res = await fetch('https://hoangnd.shopprint.click/api/template.json')
       const data = await res.json()
       if (Array.isArray(data.template)) {
         templateList.value = data.template
@@ -484,7 +489,7 @@ function closeAddStore() {
 
 async function saveStore() {
   try {
-    const res = await fetch('http://localhost:4000/api/store.json', {
+    const res = await fetch('https://hoangnd.shopprint.click/api/store.json', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(storeForm.value)
@@ -576,12 +581,14 @@ function prepareFormData() {
     variants = form.value.variants.map(variant => {
       let image_id = variant.image_id;
       let image_index = undefined;
+      let keep_image_id = true;
       if (image_id != null) {
         const idx = images.findIndex(img => String(img.id) === String(image_id));
         const img = images[idx];
         if (img && (!img.id || String(img.id).startsWith('_local'))) {
           image_index = idx;
           image_id = undefined;
+          keep_image_id = false;
         }
       } else if (variant.image) {
         // Nếu chưa có image_id nhưng có image (src), tìm index theo src
@@ -597,11 +604,19 @@ function prepareFormData() {
         option3: variant.option3 === '' ? null : variant.option3,
         sku: variant.sku === '' ? null : variant.sku,
         fulfillment_service: !variant.fulfillment_service || variant.fulfillment_service === '' ? 'manual' : variant.fulfillment_service,
-        image_id: image_id ? String(image_id) : undefined,
+        image_id: keep_image_id && image_id != null && !isNaN(Number(image_id)) ? Number(image_id) : undefined,
         image_index: image_index
       }
     });
   }
+
+  // Đồng bộ variant_ids cho từng image
+  images.forEach(img => {
+    img.variant_ids = variants
+      .filter(variant => variant.image_id != null && String(variant.image_id) === String(img.id))
+      .map(variant => variant.id)
+  })
+
   const payload = {
     ...form.value,
     images,
@@ -616,13 +631,13 @@ async function saveProduct() {
   try {
     let res
     if (editingProduct.value) {
-      res = await fetch(`http://localhost:4000/api/product/${editingProduct.value.id}?store_id=${encodeURIComponent(form.value.store_id)}`, {
+      res = await fetch(`https://hoangnd.shopprint.click/api/product/${editingProduct.value.id}?store_id=${encodeURIComponent(form.value.store_id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
     } else {
-      res = await fetch(`http://localhost:4000/api/product.json?store_id=${encodeURIComponent(form.value.store_id)}`, {
+      res = await fetch(`https://hoangnd.shopprint.click/api/product.json?store_id=${encodeURIComponent(form.value.store_id)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -645,7 +660,7 @@ async function deleteProduct(id) {
   // Use the current filterStoreId as store_id for deletion
   let success = false
   try {
-    const res = await fetch(`http://localhost:4000/api/product/${id}?store_id=${encodeURIComponent(filterStoreId.value)}`, { method: 'DELETE' })
+    const res = await fetch(`https://hoangnd.shopprint.click/api/product/${id}?store_id=${encodeURIComponent(filterStoreId.value)}`, { method: 'DELETE' })
     if (res && res.ok) {
       productMessage.value = 'Xóa sản phẩm thành công!'
       success = true
@@ -661,7 +676,7 @@ async function deleteProduct(id) {
 async function syncProducts() {
   if (!filterStoreId.value) return
   try {
-    const res = await fetch(`http://localhost:4000/api/product/sync.json?store_id=${encodeURIComponent(filterStoreId.value)}`, {
+    const res = await fetch(`https://hoangnd.shopprint.click/api/product/sync.json?store_id=${encodeURIComponent(filterStoreId.value)}`, {
       method: 'POST'
     })
     if (res.ok) {
@@ -679,7 +694,7 @@ async function syncProducts() {
 async function viewProduct(product) {
   // Lấy chi tiết sản phẩm từ API, truyền thêm store_id
   try {
-    const res = await fetch(`http://localhost:4000/api/product.json/${product.id}?store_id=${encodeURIComponent(product.store_id)}`)
+    const res = await fetch(`https://hoangnd.shopprint.click/api/product.json/${product.id}?store_id=${encodeURIComponent(product.store_id)}`)
     const data = await res.json()
     // Nếu backend trả về dạng { product: {...} } thì lấy product, còn không thì lấy data luôn
     viewingProduct.value = data.product || data
@@ -1225,6 +1240,26 @@ input:focus, textarea:focus, select:focus {
   margin-left: 16px;
   font-size: 1rem;
   display: inline-block;
+}
+.total-products-box {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 8px;
+  margin-bottom: 0;
+  font-size: 1.08rem;
+  font-weight: 600;
+  color: #3182ce;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 8px 18px;
+  box-shadow: 0 1px 6px #3182ce11;
+}
+.total-products-number {
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: #38a169;
+  margin-left: 8px;
 }
 @media (max-width: 700px) {
   .container {
