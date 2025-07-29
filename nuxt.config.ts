@@ -2,6 +2,10 @@
 export default defineNuxtConfig({
   compatibilityDate: '2025-05-15',
   devtools: { enabled: true },
+  // app: {
+  //   buildAssetsDir: '/_nuxt/',
+  //   baseURL: '/kafka/'
+  // },
   vite: {
     server: {
       allowedHosts: [
